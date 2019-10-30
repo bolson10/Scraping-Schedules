@@ -1,0 +1,131 @@
+---
+title: "Web Scraping"
+author: "Brenndan Olson"
+output:
+  html_document:
+    df_print: paged
+---
+
+We are going to be looking at the Chico State computer science spring 2019 schedule and extracting some information with web scraping.
+```{r}
+library("rvest")
+library("tidyr")
+library("naniar")
+html_link <- "http://ems.csuchico.edu/APSS/schedule/spr2019/CSCI.shtml" 
+html <- read_html(html_link)
+```
+Now we can go through and identify some of the components of the schedule, such as class name, section, subject, number, number of open seats, instructor, total number enrolled, and when and where the class meets. One problem that I have ran into is some classes are writing intensive courses, and have a W next to them so we cannot make them integers, or else those entries will be converted into NA. 
+```{r}
+schedule_nodes <- html %>% html_nodes(".yui-g")
+class_name <- schedule_nodes  %>%     
+    html_nodes("td.title") %>%  
+    html_text()
+class_section <- schedule_nodes  %>%     
+    html_nodes("td.sect") %>%  
+    html_text()
+class_subject <- schedule_nodes  %>%
+  html_nodes("td.subj") %>%
+  html_text()
+class_number <- schedule_nodes  %>%   
+    html_nodes("td.cat_num") %>%  
+    html_text()
+#    as.integer()
+class_open_seats <- schedule_nodes  %>%   
+    html_nodes("td#openseatsid.seatsavail") %>%  
+    html_text() %>%
+    as.integer()
+class_instructor <- schedule_nodes  %>%
+    html_nodes("td.Instructor") %>%  
+    html_text()
+class_enrollment <- schedule_nodes  %>%
+    html_nodes("td.enrtot") %>%  
+    html_text() %>%
+    as.integer()
+class_days <- schedule_nodes  %>%
+    html_nodes("td.days") %>%  
+    html_text()
+class_time <- schedule_nodes  %>%
+    html_nodes("td.time") %>%  
+    html_text()
+```
+Then we can take the scraped data and put it into a more desirable format, so we can make a tibble containing all of the data.
+Some of the data is missing, so I am going to turn any data entries that are only spaces into NA. We can also make class number a factor, so that we can still compare classes by number
+```{r}
+csci_classes <- dplyr::tibble(name=class_name,
+                              section=class_section,
+                              subj = class_subject,
+                              number=as.factor(class_number),
+                              open_seats=class_open_seats, 
+                              total_enrollment=class_enrollment,
+                              instructor=class_instructor,
+                              days=class_days,
+                              time=class_time)
+ csci_classes <-
+   csci_classes %>% 
+   replace_with_na_all(condition = ~.x == " ")
+head(csci_classes)
+```
+That worked, but only for that specific url. We can create a function that will be able to scrape whatever url we give it, assuming it is a school schedule. 
+```{r}
+read_class_schedule <- function(url){
+  html <- read_html(url)
+  schedule_nodes  <- html %>% html_nodes(".yui-g")
+class_name <- schedule_nodes  %>%     #maintable > tbody > tr:nth-child(1) > td.title
+    html_nodes("td.title") %>%  
+    html_text()
+class_section <- schedule_nodes  %>%     
+    html_nodes("td.sect") %>%  
+    html_text()
+class_subject <- schedule_nodes  %>%
+  html_nodes("td.subj") %>%
+  html_text()
+class_number <- schedule_nodes  %>%   
+    html_nodes("td.cat_num") %>%  
+    html_text() 
+class_open_seats <- schedule_nodes  %>%   
+    html_nodes("td#openseatsid.seatsavail") %>%  
+    html_text() %>%
+    as.integer()
+class_instructor <- schedule_nodes  %>%
+    html_nodes("td.Instructor") %>%  
+    html_text()
+class_enrollment <- schedule_nodes  %>%
+    html_nodes("td.enrtot") %>%  
+    html_text() %>%
+    as.integer()
+class_days <- schedule_nodes  %>%
+    html_nodes("td.days") %>%  
+    html_text()
+class_time <- schedule_nodes  %>%
+    html_nodes("td.time") %>%  
+    html_text()
+classes  <- dplyr::tibble(name=class_name,
+                              section=class_section,
+                              subj = class_subject,
+                              number=as.factor(class_number),
+                              open_seats=class_open_seats, 
+                              total_enrollment=class_enrollment,
+                              instructor=class_instructor,
+                              days=class_days,
+                              time=class_time)
+return(classes)
+}
+```
+Now we can test it with the schedules for math and computer science in spring 2019 and spring 2020. I am also going to make all of the spaces(" ") into NA as I did earlier. The data from all four is going to be added to *combined tables* using the function rbind(), which will return a table with rows from both tables. Since they all have the same column names, it does not take much effort to daisy chain the data.
+```{r}
+csci19 <- read_class_schedule("http://ems.csuchico.edu/APSS/schedule/spr2019/CSCI.shtml")
+math19 <- read_class_schedule("http://ems.csuchico.edu/APSS/schedule/spr2019/MATH.shtml")
+combined_tables <- rbind(csci19,math19)
+csci20 <- read_class_schedule("http://ems.csuchico.edu/APSS/schedule/spr2020/CSCI.shtml")
+combined_tables <- rbind(combined_tables,csci20)
+math20 <- read_class_schedule("http://ems.csuchico.edu/APSS/schedule/spr2020/MATH.shtml")
+combined_tables <- rbind(combined_tables,math20)
+combined_tables <-
+  combined_tables %>% 
+   replace_with_na_all(condition = ~.x == " ")
+head(combined_tables)
+```
+Just to make sure we have all of the data, we can compare the number of rows using the == logical operator. If they are different, it will return false.
+```{r}
+nrow(combined_tables) == nrow(csci20) + nrow(csci19) + nrow(math20) + nrow(math19)
+```
